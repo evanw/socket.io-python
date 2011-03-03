@@ -25,6 +25,8 @@ function log(html) {
 	document.body.innerHTML += html;
 }
 
+var sockets = [];
+
 function socket(pass, fail, expects) {
 	var sock = new io.Socket('localhost', { port: 5000 });
 	sock.on('message', function(data) {
@@ -35,6 +37,7 @@ function socket(pass, fail, expects) {
 	sock.on('disconnect', function() {
 		fail('lost connection');
 	});
+	sockets.push(sock);
 	return sock;
 }
 
@@ -48,7 +51,15 @@ var numTestsPassed = 0;
 var currentTest = -1;
 
 function nextTest() {
-	if (++currentTest < tests.length) {
+	currentTest++;
+	
+	// must disconnect sockets because Firefox 3 doesn't
+	// allow more than a few simultaneous connections
+	while (sockets.length > 0) {
+		sockets.pop().disconnect();
+	}
+	
+	if (currentTest < tests.length) {
 		log(tests[currentTest].name + ' ... ');
 		try {
 			var current = currentTest;
@@ -57,8 +68,11 @@ function nextTest() {
 			}, function(text) {
 				if (current == currentTest) fail(text);
 			});
+			setTimeout(function() {
+				if (current == currentTest) fail('timeout after 3 seconds');
+			}, 3000);
 		} catch (e) {
-			fail(e.toString());
+			if (current == currentTest) fail(e.toString());
 		}
 	} else {
 		log('<p>' + numTestsPassed + ' / ' + numTests + ' tests passed</p>');

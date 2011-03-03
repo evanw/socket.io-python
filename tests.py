@@ -25,5 +25,17 @@ class Server(io.Server):
     def on_disconnect(self, client):
         pass
 
-print '\nopen tests.html to run tests\n'
+def run_server():
+    from SimpleHTTPServer import SimpleHTTPRequestHandler
+    from SocketServer import TCPServer
+    class NiceServer(TCPServer):
+        allow_reuse_address = True
+    NiceServer(('', 8000), SimpleHTTPRequestHandler).serve_forever()
+
+import threading
+t = threading.Thread(target=run_server)
+t.daemon = True
+t.start()
+
+print '\nopen http://localhost:8000/tests.html to run tests\n'
 Server().listen(5000)
