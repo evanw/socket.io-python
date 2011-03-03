@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html><head>
+	<style type="text/css">
+
+body {
+	margin: 50px;
+	color: white;
+	background: black;
+	font: 13px Arial, sans-serif;
+}
+
+.pass {
+	color: #00FF00;
+}
+
+.fail {
+	color: #FF0000;
+}
+
+	</style>
+	<script type="text/javascript" src="http://localhost:5000/socket.io/socket.io.js"></script>
+	<script type="text/javascript">
+
+function log(html) {
+	document.body.innerHTML += html;
+}
+
+function socket(pass, fail, expects) {
+	var sock = new io.Socket('localhost', { port: 5000 });
+	sock.on('message', function(data) {
+		var expected = expects.shift();
+		if (data !== expected) fail('expected "' + expected + '" but got "' + data + '"');
+		else if (expects.length == 0) pass();
+	});
+	sock.on('disconnect', function() {
+		fail('lost connection');
+	});
+	return sock;
+}
+
+function test(name, run) {
+	tests.push({ name: name, run: run });
+}
+
+var tests = [];
+var numTests = 0;
+var numTestsPassed = 0;
+var currentTest = -1;
+
+function nextTest() {
+	if (++currentTest < tests.length) {
+		log(tests[currentTest].name + ' ... ');
+		try {
+			var current = currentTest;
+			tests[currentTest].run(function() {
+				if (current == currentTest) pass();
+			}, function(text) {
+				if (current == currentTest) fail(text);
+			});
+		} catch (e) {
+			fail(e.toString());
+		}
+	} else {
+		log('<p>' + numTestsPassed + ' / ' + numTests + ' tests passed</p>');
+	}
+}
+
+function pass() {
+	log('<span class="pass">passed</span><br>');
+	numTestsPassed++;
+	numTests++;
+	nextTest();
+}
+
+function fail(text) {
+	log('<span class="fail">failed, ' + text + '</span><br>');
+	numTests++;
+	nextTest();
+}
+
+test('echo', function(pass, fail) {
+	var s = socket(pass, fail, ['test']);
+	s.on('connect', function() {
+		s.send('echo:test');
+	});
+	s.connect();
+});
+
+test('three clients', function(pass, fail) {
+	function partOne() {
+		setTimeout(function() {
+			b.send('send:a:a1');
+			c.send('send:b:b2');
+			a.send('send:c:c3');
+		}, 100);
+	}
+	
+	function partTwo() {
+		setTimeout(function() {
+			c.send('send:c:c4');
+			a.send('send:b:b5');
+			b.send('send:a:a6');
+		}, 100);
+	}
+	
+	var checkCount = 0;
+	function check() {
+		if (++checkCount == 3) pass();
+	}
+	
+	var a = socket(check, fail, ['a1', 'a6']);
+	var b = socket(check, fail, ['b2', 'b5']);
+	var c = socket(check, fail, ['c3', 'c4']);
+	
+	var connectCount = 0;
+	a.on('connect', function() {
+		a.send('setname:a');
+		if (++connectCount == 3) partOne();
+	});
+	b.on('connect', function() {
+		b.send('setname:b');
+		if (++connectCount == 3) partOne();
+	});
+	c.on('connect', function() {
+		c.send('setname:c');
+		if (++connectCount == 3) partOne();
+	});
+	
+	var messageCount = 0;
+	function checkStart() {
+		if (++messageCount == 3) partTwo();
+	}
+	a.on('message', checkStart);
+	b.on('message', checkStart);
+	c.on('message', checkStart);
+	
+	a.connect();
+	b.connect();
+	c.connect();
+});
+
+test('broadcast', function(pass, fail) {
+	function start() {
+		setTimeout(function() {
+			b.send('broadcast:stuff');
+		}, 100);
+	}
+
+	var checkCount = 0;
+	function check() {
+		if (++checkCount == 3) pass();
+	}
+	
+	var a = socket(check, fail, ['stuff']);
+	var b = socket(check, fail, ['stuff']);
+	var c = socket(check, fail, ['stuff']);
+	
+	var connectCount = 0;
+	function checkStart() {
+		if (++connectCount == 3) start();
+	}
+	a.on('connect', checkStart);
+	b.on('connect', checkStart);
+	c.on('connect', checkStart);
+	
+	a.connect();
+	b.connect();
+	c.connect();
+});
+
+window.onload = nextTest;
+
+	</script>
+</head><body>
+	<h1>Tests</h1>
+	<p>If the tests below don't work, try running <code>tests.py</code> and refreshing the page.</p>
+</body></html>
