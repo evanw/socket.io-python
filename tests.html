@@ -88,6 +88,7 @@ test('echo', function(pass, fail) {
 
 test('three clients', function(pass, fail) {
 	function partOne() {
+		// give server time process all new connections
 		setTimeout(function() {
 			b.send('send:a:a1');
 			c.send('send:b:b2');
@@ -96,11 +97,9 @@ test('three clients', function(pass, fail) {
 	}
 	
 	function partTwo() {
-		setTimeout(function() {
-			c.send('send:c:c4');
-			a.send('send:b:b5');
-			b.send('send:a:a6');
-		}, 100);
+		c.send('send:c:c4');
+		a.send('send:b:b5');
+		b.send('send:a:a6');
 	}
 	
 	var checkCount = 0;
@@ -141,6 +140,7 @@ test('three clients', function(pass, fail) {
 
 test('broadcast', function(pass, fail) {
 	function start() {
+		// give server time process all new connections
 		setTimeout(function() {
 			b.send('broadcast:stuff');
 		}, 100);
@@ -166,6 +166,21 @@ test('broadcast', function(pass, fail) {
 	a.connect();
 	b.connect();
 	c.connect();
+});
+
+test('large buffer', function(pass, fail) {
+	var buffer = '';
+	for (var i = 0; i < 1024; i++) {
+		buffer += Math.random() + ',';
+	}
+	buffer += 'end';
+	var s = socket(pass, fail, ['a', buffer, 'b']);
+	s.on('connect', function() {
+		s.send('echo:a');
+		s.send('echo:' + buffer);
+		s.send('echo:b');
+	});
+	s.connect();
 });
 
 window.onload = nextTest;

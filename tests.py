@@ -2,13 +2,13 @@ from SimpleHTTPServer import SimpleHTTPRequestHandler
 from SocketServer import TCPServer
 import io
 
-class Server(io.Socket):
+class Server(io.Server):
     def on_connect(self, client):
         client.name = None
 
     def on_message(self, client, message):
         command, value = message.split(':', 1)
-        print 'got message', command, value
+        print 'got message', command, 'starting with', '"%s"' % value[:30]
 
         if command == 'setname':
             client.name = value

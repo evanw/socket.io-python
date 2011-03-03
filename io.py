@@ -14,35 +14,41 @@ import json
 import atexit
 import socket
 import tempfile
-import threading
 import subprocess
 
+# A socket.io template that connects to a Python socket over TCP and forwards
+# messages as JSON strings separated by null characters. TCP was chosen over
+# UDP to allow for arbitrarily large packets.
 _js = '''
+var net = require('net');
 var http = require('http');
-var dgram = require('dgram');
 var io = require('socket.io');
 
 // http server
 var server = http.createServer(function() {});
 server.listen(%d);
 
-// udp connection to server
-var udp = dgram.createSocket('udp4');
-udp.on('message', function(data) {
-    var json = JSON.parse(data.toString());
-    if (json.broadcast) {
-        for (var session in socket.clients) {
-            socket.clients[session].send(json.data);
+// tcp connection to server
+var tcp = net.createConnection(%d, 'localhost');
+var buffer = '';
+tcp.addListener('data', function(data) {
+    var i = 0;
+    while (i < data.length) {
+        if (data[i] == 0) {
+            sendToClient(JSON.parse(buffer + data.toString('utf8', 0, i)));
+            data = data.slice(i + 1);
+            buffer = '';
+            i = 0;
+        } else {
+            i++;
         }
-    } else if (json.session in socket.clients) {
-        socket.clients[json.session].send(json.data);
     }
+    buffer += data.toString('utf8');
 });
-udp.bind(%d, 'localhost');
 
 // socket.io connection to clients
 var socket = io.listen(server);
-function send(client, command, data) {
+function sendToServer(client, command, data) {
     data = JSON.stringify({
         session: client.sessionId,
         command: command,
@@ -50,15 +56,24 @@ function send(client, command, data) {
         address: client.connection.remoteAddress,
         port: client.connection.remotePort
     });
-    udp.send(new Buffer(data), 0, data.length, %d, 'localhost');
+    tcp.write(data + '\0');
+}
+function sendToClient(json) {
+    if (json.broadcast) {
+        for (var session in socket.clients) {
+            socket.clients[session].send(json.data);
+        }
+    } else if (json.session in socket.clients) {
+        socket.clients[json.session].send(json.data);
+    }
 }
 socket.on('connection', function(client) {
-    send(client, 'connect', null);
+    sendToServer(client, 'connect', null);
     client.on('message', function(data) {
-        send(client, 'message', data);
+        sendToServer(client, 'message', data);
     });
     client.on('disconnect', function() {
-        send(client, 'disconnect', null);
+        sendToServer(client, 'disconnect', null);
     });
 });
 '''
@@ -94,14 +109,14 @@ class Client:
         '''
         return 'client-%s:%s' % (self.address, self.port)
 
-class Socket:
+class Server:
     '''
     This is a socket.io server, and is meant to be subclassed. A subclass
     might look like this:
     
         import io
         
-        class Server(io.Socket):
+        class Server(io.Server):
             def on_connect(self, client):
                 print client, 'connected'
                 self.broadcast(str(client) + ' connected')
@@ -143,8 +158,7 @@ class Socket:
     def on_connect(self, client):
         '''
         Called after a client connects. Override this in a subclass to
-        be notified of connections. This will be called on a separate
-        thread.
+        be notified of connections.
         
         client - a Client instance representing the connection
         '''
@@ -153,8 +167,7 @@ class Socket:
     def on_message(self, client, data):
         '''
         Called when client sends a message. Override this in a subclass to
-        be notified of sent messages. This will be called on a separate
-        thread.
+        be notified of sent messages.
         
         client - a Client instance representing the connection
         data - a string with the transmitted data
@@ -164,8 +177,7 @@ class Socket:
     def on_disconnect(self, client):
         '''
         Called after a client disconnects. Override this in a subclass to
-        be notified of disconnections. This will be called on a separate
-        thread.
+        be notified of disconnections.
         
         client - a Client instance representing the connection
         '''
@@ -179,28 +191,27 @@ class Socket:
         '''
         self._send(data, { 'broadcast': True })
     
-    def listen(self, ws_port, js_port=None, py_port=None):
+    def listen(self, ws_port, py_port=None):
         '''
-        Start the server thread on the port given by ws_port. We actually
-        need three ports: one for the browser, one for node.js, and one for
-        this module:
+        Run the server on the port given by ws_port. We actually need two
+        ports, an external one for the browser (ws_port) and an internal
+        one to communicate with node.js (py_port):
         
-        browser:          node.js:                    this module:
-        io.Socket   <->   ws_port <-> js_port   <->   py_port <-> io.Socket
+        browser:        node.js:                     this module:
+        ---------       ----------------------       ---------------------
+        io.Socket  <->  ws_port <-> TCP socket  <->  py_port <-> io.Socket
         
         ws_port - the port that the browser will connect to
-        js_port - the port that node.js will use to talk to python
-                  defaults to ws_port + 1
         py_port - the port that python will use to talk to node.js
-                  defaults to ws_port + 2
+                  (defaults to ws_port + 1)
         '''
         
-        # set default ports
-        if js_port is None: js_port = ws_port + 1
-        if py_port is None: py_port = ws_port + 2
+        # set default port
+        if py_port is None:
+            py_port = ws_port + 1
         
         # create a custom node.js script
-        js = _js % (ws_port, js_port, py_port)
+        js = _js % (ws_port, py_port)
         handle, path = tempfile.mkstemp(suffix='.js')
         os.write(handle, js)
         os.close(handle)
@@ -213,13 +224,22 @@ class Socket:
         atexit.register(cleanup)
         
         # make sure we can communicate with node.js
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind(('localhost', py_port))
+        sock.listen(0)
+        sock, addr = sock.accept()
         def send(data, info):
             info['data'] = data
-            sock.sendto(json.dumps(info), ('localhost', js_port))
+            sock.send(json.dumps(info) + '\0')
         self._send = send
         
         # run the server
+        buffer = ''
         while 1:
-            self._handle(json.loads(sock.recvfrom(4096)[0]))
+            buffer += sock.recv(4096)
+            index = buffer.find('\0')
+            while index >= 0:
+                data, buffer = buffer[0:index], buffer[index+1:]
+                self._handle(json.loads(data))
+                index = buffer.find('\0')

@@ -12,7 +12,7 @@ This bridge is designed to be self-contained, so `io.py` is the only file you ne
 
     import io
     
-    class Server(io.Socket):
+    class Server(io.Server):
         def on_connect(self, client):
             print client, 'connected'
             self.broadcast(str(client) + ' connected')
