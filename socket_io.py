@@ -114,7 +114,7 @@ class Server:
     This is a socket.io server, and is meant to be subclassed. A subclass
     might look like this:
     
-        import io
+        import socket_io as io
         
         class Server(io.Server):
             def on_connect(self, client):

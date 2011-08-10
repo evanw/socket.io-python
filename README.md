@@ -4,13 +4,13 @@ This gives Python users access to socket.io, a node.js library. This library pro
 
 ## Installation
 
-This bridge requires [node.js](http://nodejs.org) and [socket.io](http://socket.io). Installation instructions can be found on their respective websites.
+This bridge requires [node.js](http://nodejs.org) and [socket.io](http://socket.io). Install node.js and [npm](http://npmjs.org/), then run `npm install .` in this directory to install the correct version of socket.io (the newer versions have changed their API).
 
 ## Usage
 
-This bridge is designed to be self-contained, so `io.py` is the only file you need. A server is created by subclassing `io.Socket` and overriding the `on_connect`, `on_message`, and/or `on_disconnect` methods:
+This bridge is designed to be self-contained, so `socket_io.py` is the only file you need. A server is created by subclassing `socket_io.Socket` and overriding the `on_connect`, `on_message`, and/or `on_disconnect` methods:
 
-    import io
+    import socket_io as io
     
     class Server(io.Server):
         def on_connect(self, client):

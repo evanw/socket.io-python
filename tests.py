@@ -1,6 +1,6 @@
 from SimpleHTTPServer import SimpleHTTPRequestHandler
 from SocketServer import TCPServer
-import io
+import socket_io as io
 
 class Server(io.Server):
     def on_connect(self, client):
